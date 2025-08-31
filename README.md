@@ -1,0 +1,1 @@
+# command_registration_bot
