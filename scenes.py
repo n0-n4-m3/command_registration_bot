@@ -9,7 +9,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.scene import Scene, SceneRegistry, ScenesManager, on
 from aiogram.fsm.storage.memory import SimpleEventIsolation
-from aiogram.types import KeyboardButton, Message, ReplyKeyboardRemove
+from aiogram.types import KeyboardButton, Message, ReplyKeyboardRemove, PollAnswer
 from aiogram.utils.formatting import (
     Bold,
     as_key_value,
@@ -18,88 +18,28 @@ from aiogram.utils.formatting import (
     as_section,
 )
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from aiogram.handlers import PollHandler
+
+import json
 
 TOKEN = getenv("BOT_TOKEN")
 
-
-@dataclass
-class Answer:
-    """
-    Represents an answer to a question.
-    """
-
-    text: str
-    """The answer text"""
-    is_correct: bool = False
-    """Indicates if the answer is correct"""
-
-
 @dataclass
 class Question:
-    """
-    Class representing a quiz with a question and a list of answers.
-    """
-
     text: str
-    """The question text"""
-    answers: list[Answer]
-    """List of answers"""
+    type: str
+    variants: list = field(default_factory=list)
+    answer: str = "-"
 
-    correct_answer: str = field(init=False)
-
-    def __post_init__(self):
-        self.correct_answer = next(answer.text for answer in self.answers if answer.is_correct)
-
-
-# Fake data, in real application you should use a database or something else
-QUESTIONS = [
-    Question(
-        text="What is the capital of France?",
-        answers=[
-            Answer("Paris", is_correct=True),
-            Answer("London"),
-            Answer("Berlin"),
-            Answer("Madrid"),
-        ],
-    ),
-    Question(
-        text="What is the capital of Spain?",
-        answers=[
-            Answer("Paris"),
-            Answer("London"),
-            Answer("Berlin"),
-            Answer("Madrid", is_correct=True),
-        ],
-    ),
-    Question(
-        text="What is the capital of Germany?",
-        answers=[
-            Answer("Paris"),
-            Answer("London"),
-            Answer("Berlin", is_correct=True),
-            Answer("Madrid"),
-        ],
-    ),
-    Question(
-        text="What is the capital of England?",
-        answers=[
-            Answer("Paris"),
-            Answer("London", is_correct=True),
-            Answer("Berlin"),
-            Answer("Madrid"),
-        ],
-    ),
-    Question(
-        text="What is the capital of Italy?",
-        answers=[
-            Answer("Paris"),
-            Answer("London"),
-            Answer("Berlin"),
-            Answer("Rome", is_correct=True),
-        ],
-    ),
-]
-
+que_json = json.load(open("./questions/light_of_gospel.json"))
+QUESTIONS = []
+for que in que_json["questions"].values():
+    if que["type"] == "poll":
+        QUESTIONS.append(Question(text=que["text"], type=que["type"], variants=que["poll_fields"]))
+    else:
+        QUESTIONS.append(Question(text=que["text"], type=que["type"]))
+    
+print(QUESTIONS)
 
 class QuizScene(Scene, state="quiz"):
 
@@ -116,13 +56,17 @@ class QuizScene(Scene, state="quiz"):
             return await self.wizard.exit()
 
         markup = ReplyKeyboardBuilder()
-        markup.add(*[KeyboardButton(text=answer.text) for answer in quiz.answers])
-
         if step > 0: # type: ignore
-            markup.button(text="🔙 Back")
-        markup.button(text="🚫 Exit")
+            markup.button(text="🔙 Назад")
+        markup.button(text="🚫 Выход")
 
         await state.update_data(step=step)
+        if QUESTIONS[step].type == "poll": #type: ignore
+            return await message.answer_poll(question=QUESTIONS[step].text, #type: ignore
+                            options=QUESTIONS[step].variants, #type: ignore
+                            is_anonymous=False, 
+                            reply_markup=markup.adjust(2).as_markup(resize_keyboard=True),
+        )
         return await message.answer(
             text=QUESTIONS[step].text, # type: ignore
             reply_markup=markup.adjust(2).as_markup(resize_keyboard=True),
@@ -130,15 +74,6 @@ class QuizScene(Scene, state="quiz"):
 
     @on.message.exit()
     async def on_exit(self, message: Message, state: FSMContext) -> None:
-        """
-        Method triggered when the user exits the quiz scene.
-
-        It calculates the user's answers, displays the summary, and clears the stored answers.
-
-        :param message:
-        :param state:
-        :return:
-        """
         data = await state.get_data()
         answers = data.get("answers", {})
 
@@ -178,15 +113,6 @@ class QuizScene(Scene, state="quiz"):
 
     @on.message(F.text == "🔙 Back")
     async def back(self, message: Message, state: FSMContext) -> None:
-        """
-        Method triggered when the user selects the "Back" button.
-
-        It allows the user to go back to the previous question.
-
-        :param message:
-        :param state:
-        :return:
-        """
         data = await state.get_data()
         step = data["step"]
 
@@ -199,47 +125,30 @@ class QuizScene(Scene, state="quiz"):
 
     @on.message(F.text == "🚫 Exit")
     async def exit(self, message: Message) -> None:
-        """
-        Method triggered when the user selects the "Exit" button.
-
-        It exits the quiz.
-
-        :param message:
-        :return:
-        """
         await self.wizard.exit()
+        
+    @on.poll_answer()
+    async def poll_answer(self, poll_answer: PollAnswer, state: FSMContext) -> None:
+
+        answer_id = poll_answer.option_ids[0]
+        if answer_id != poll_answer.option_ids[-1]:
+            data = await state.get_data()
+            step = data["step"]
+            answers = data.get("answers", {})
+            answers[step] = QUESTIONS[step].variants[answer_id]
+            await state.update_data(answer=answers)
+
+        await self.wizard.retake(step=step + 1)
 
     @on.message(F.text)
     async def answer(self, message: Message, state: FSMContext) -> None:
-        """
-        Method triggered when the user selects an answer.
-
-        It stores the answer and proceeds to the next question.
-
-        :param message:
-        :param state:
-        :return:
-        """
         data = await state.get_data()
         step = data["step"]
         answers = data.get("answers", {})
         answers[step] = message.text
-        await state.update_data(answers=answers)
+        await state.update_data(answer=answers)
 
         await self.wizard.retake(step=step + 1)
-
-    @on.message()
-    async def unknown_message(self, message: Message) -> None:
-        """
-        Method triggered when the user sends a message that is not a command or an answer.
-
-        It asks the user to select an answer.
-
-        :param message: The message received from the user.
-        :return: None
-        """
-        await message.answer("Please select an answer.")
-
 
 quiz_router = Router(name=__name__)
 # Add handler that initializes the scene
