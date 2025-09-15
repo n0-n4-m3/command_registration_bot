@@ -10,15 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.scene import Scene, SceneRegistry, ScenesManager, on
 from aiogram.fsm.storage.memory import SimpleEventIsolation
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardRemove, PollAnswer
-from aiogram.utils.formatting import (
-    Bold,
-    as_key_value,
-    as_list,
-    as_numbered_list,
-    as_section,
-)
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
-from aiogram.handlers import PollHandler
 
 import json
 
@@ -39,16 +31,18 @@ for que in que_json["questions"].values():
     else:
         QUESTIONS.append(Question(text=que["text"], type=que["type"]))
     
-print(QUESTIONS)
+# print(QUESTIONS)
 
 class QuizScene(Scene, state="quiz"):
 
+    @on.poll_answer.enter()
     @on.message.enter()
     async def on_enter(self, message: Message, state: FSMContext, step: int | None = 0) -> Any:
         if not step:
             # This is the first step, so we should greet the user
             await message.answer("Welcome to the quiz!")
 
+        
         try:
             quiz = QUESTIONS[step] # type: ignore
         except IndexError:
@@ -60,6 +54,7 @@ class QuizScene(Scene, state="quiz"):
             markup.button(text="🔙 Назад")
         markup.button(text="🚫 Выход")
 
+        print(step)
         await state.update_data(step=step)
         if QUESTIONS[step].type == "poll": #type: ignore
             return await message.answer_poll(question=QUESTIONS[step].text, #type: ignore
@@ -67,51 +62,32 @@ class QuizScene(Scene, state="quiz"):
                             is_anonymous=False, 
                             reply_markup=markup.adjust(2).as_markup(resize_keyboard=True),
         )
-        return await message.answer(
-            text=QUESTIONS[step].text, # type: ignore
-            reply_markup=markup.adjust(2).as_markup(resize_keyboard=True),
-        )
+        try:
+            return await message.answer(
+                text=QUESTIONS[step].text, # type: ignore
+                reply_markup=markup.adjust(2).as_markup(resize_keyboard=True),
+            )
+        except:
+            print(type(message))
+        #     return await poll_answer.answer(
+        #         text=QUESTIONS[step].text, # type: ignore
+        #         reply_markup=markup.adjust(2).as_markup(resize_keyboard=True),
+        #     )
+            print("booya")
 
+    @on.poll_answer.exit()
     @on.message.exit()
-    async def on_exit(self, message: Message, state: FSMContext) -> None:
+    async def on_exit(self, poll_answer: PollAnswer, message: Message, state: FSMContext) -> None:
         data = await state.get_data()
         answers = data.get("answers", {})
 
-        correct = 0
-        incorrect = 0
-        user_answers = []
-        for step, quiz in enumerate(QUESTIONS):
-            answer = answers.get(step)
-            is_correct = answer == quiz.correct_answer
-            if is_correct:
-                correct += 1
-                icon = "✅"
-            else:
-                incorrect += 1
-                icon = "❌"
-            if answer is None:
-                answer = "no answer"
-            user_answers.append(f"{quiz.text} ({icon} {html.quote(answer)})")
-
-        content = as_list(
-            as_section(
-                Bold("Your answers:"),
-                as_numbered_list(*user_answers),
-            ),
-            "",
-            as_section(
-                Bold("Summary:"),
-                as_list(
-                    as_key_value("Correct", correct),
-                    as_key_value("Incorrect", incorrect),
-                ),
-            ),
-        )
-
-        await message.answer(**content.as_kwargs(), reply_markup=ReplyKeyboardRemove())
+        try:
+            await message.answer(answers, reply_markup=ReplyKeyboardRemove())
+        except:
+            await poll_answer.bot.send_message(chat_id=poll_answer.user.id, text=answers, reply_markup=ReplyKeyboardRemove()) # type: ignore
         await state.set_data({})
 
-    @on.message(F.text == "🔙 Back")
+    @on.message(F.text == "🔙 Назад")
     async def back(self, message: Message, state: FSMContext) -> None:
         data = await state.get_data()
         step = data["step"]
@@ -123,32 +99,50 @@ class QuizScene(Scene, state="quiz"):
             return await self.wizard.exit()
         return await self.wizard.back(step=previous_step)
 
-    @on.message(F.text == "🚫 Exit")
+    @on.message(F.text == "🚫 Выход")
     async def exit(self, message: Message) -> None:
         await self.wizard.exit()
         
     @on.poll_answer()
     async def poll_answer(self, poll_answer: PollAnswer, state: FSMContext) -> None:
+        data = await state.get_data()
+        step = data["step"]
 
+        
         answer_id = poll_answer.option_ids[0]
-        if answer_id != poll_answer.option_ids[-1]:
-            data = await state.get_data()
-            step = data["step"]
-            answers = data.get("answers", {})
-            answers[step] = QUESTIONS[step].variants[answer_id]
-            await state.update_data(answer=answers)
-
-        await self.wizard.retake(step=step + 1)
-
+        if QUESTIONS[step].variants[answer_id] == QUESTIONS[step].variants[-1]:
+            await poll_answer.bot.send_message( #type: ignore
+                chat_id=poll_answer.user.id, #type: ignore
+                text="Вы выбрали 'Свой вариант'. Пожалуйста, напишите его:",)
+            await state.update_data(awaiting_custom_answer_for_step=step)
+        else:
+            print("i was here")
+            await self.wizard.retake(step=step+1)
+            
     @on.message(F.text)
     async def answer(self, message: Message, state: FSMContext) -> None:
         data = await state.get_data()
         step = data["step"]
-        answers = data.get("answers", {})
-        answers[step] = message.text
-        await state.update_data(answer=answers)
+        
+        awaiting_step = data.get("awaiting_custom_answer_for_step")
+        print(awaiting_step, "tried to parse text")
+        if awaiting_step is not None:
+            # Это кастомный ответ — сохраняем его вместо предыдущего
+            answers = data.get("answers", {})
+            answers[awaiting_step] = message.text  # перезаписываем "Свой вариант" на реальный текст
+            await state.update_data(answers=answers, awaiting_custom_answer_for_step=None)
+            # Теперь переходим на следующий вопрос
+            await self.wizard.retake(step=awaiting_step + 1)
+        
+        if QUESTIONS[step].type != "poll":        
+            answers = data.get("answers", {})
+            answers[step] = message.text
+            await state.update_data(answers=answers)
 
-        await self.wizard.retake(step=step + 1)
+            await self.wizard.retake(step=step + 1)
+        else:
+            print("executed")
+            pass
 
 quiz_router = Router(name=__name__)
 # Add handler that initializes the scene
