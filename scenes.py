@@ -30,8 +30,6 @@ for que in que_json["questions"].values():
         QUESTIONS.append(Question(text=que["text"], type=que["type"], variants=que["poll_fields"]))
     else:
         QUESTIONS.append(Question(text=que["text"], type=que["type"]))
-    
-# print(QUESTIONS)
 
 class QuizScene(Scene, state="quiz"):
 
@@ -39,22 +37,17 @@ class QuizScene(Scene, state="quiz"):
     @on.message.enter()
     async def on_enter(self, message: Message, state: FSMContext, step: int | None = 0) -> Any:
         if not step:
-            # This is the first step, so we should greet the user
-            await message.answer("Welcome to the quiz!")
-
+            await message.answer(que_json["start_text"])
         
         try:
             quiz = QUESTIONS[step] # type: ignore
         except IndexError:
-            # This error means that the question's list is over
             return await self.wizard.exit()
 
         markup = ReplyKeyboardBuilder()
         if step > 0: # type: ignore
             markup.button(text="🔙 Назад")
-        markup.button(text="🚫 Выход")
 
-        print(step)
         await state.update_data(step=step)
         if QUESTIONS[step].type == "poll": #type: ignore
             return await message.answer_poll(question=QUESTIONS[step].text, #type: ignore
@@ -68,23 +61,32 @@ class QuizScene(Scene, state="quiz"):
                 reply_markup=markup.adjust(2).as_markup(resize_keyboard=True),
             )
         except:
-            print(type(message))
-        #     return await poll_answer.answer(
-        #         text=QUESTIONS[step].text, # type: ignore
-        #         reply_markup=markup.adjust(2).as_markup(resize_keyboard=True),
-        #     )
-            print("booya")
+            print("boyya")
 
     @on.poll_answer.exit()
-    @on.message.exit()
-    async def on_exit(self, poll_answer: PollAnswer, message: Message, state: FSMContext) -> None:
+    async def on_exit_poll(self, poll_answer: PollAnswer, state: FSMContext) -> None:
         data = await state.get_data()
         answers = data.get("answers", {})
+        questionnaire = zip([x.text for x in QUESTIONS], answers.values())
+        
+        text = ""
+        for x,y in questionnaire:
+            text = text + f"{x}: {y}\n"
 
-        try:
-            await message.answer(answers, reply_markup=ReplyKeyboardRemove())
-        except:
-            await poll_answer.bot.send_message(chat_id=poll_answer.user.id, text=answers, reply_markup=ReplyKeyboardRemove()) # type: ignore
+        await poll_answer.bot.send_message(chat_id=poll_answer.user.id, text=text, reply_markup=ReplyKeyboardRemove()) # type: ignore
+        await state.set_data({})
+        
+    @on.message.exit()
+    async def on_exit(self, message: Message, state: FSMContext) -> None:
+        data = await state.get_data()
+        answers = data.get("answers", {})
+        questionnaire = zip([x.text for x in QUESTIONS], answers.values())
+        
+        text = ""
+        for x,y in questionnaire:
+            text = text + f"{x}: {y}\n"
+
+        await message.answer(text, reply_markup=ReplyKeyboardRemove())
         await state.set_data({})
 
     @on.message(F.text == "🔙 Назад")
@@ -94,20 +96,14 @@ class QuizScene(Scene, state="quiz"):
 
         previous_step = step - 1
         if previous_step < 0:
-            # In case when the user tries to go back from the first question,
-            # we just exit the quiz
             return await self.wizard.exit()
         return await self.wizard.back(step=previous_step)
-
-    @on.message(F.text == "🚫 Выход")
-    async def exit(self, message: Message) -> None:
-        await self.wizard.exit()
         
     @on.poll_answer()
     async def poll_answer(self, poll_answer: PollAnswer, state: FSMContext) -> None:
         data = await state.get_data()
         step = data["step"]
-
+        answers = data.get("answers", {})
         
         answer_id = poll_answer.option_ids[0]
         if QUESTIONS[step].variants[answer_id] == QUESTIONS[step].variants[-1]:
@@ -116,7 +112,8 @@ class QuizScene(Scene, state="quiz"):
                 text="Вы выбрали 'Свой вариант'. Пожалуйста, напишите его:",)
             await state.update_data(awaiting_custom_answer_for_step=step)
         else:
-            print("i was here")
+            answers[step] = QUESTIONS[step].variants[answer_id]  # перезаписываем "Свой вариант" на реальный текст
+            await state.update_data(answers=answers, awaiting_custom_answer_for_step=None)
             await self.wizard.retake(step=step+1)
             
     @on.message(F.text)
@@ -125,7 +122,6 @@ class QuizScene(Scene, state="quiz"):
         step = data["step"]
         
         awaiting_step = data.get("awaiting_custom_answer_for_step")
-        print(awaiting_step, "tried to parse text")
         if awaiting_step is not None:
             # Это кастомный ответ — сохраняем его вместо предыдущего
             answers = data.get("answers", {})
@@ -145,31 +141,13 @@ class QuizScene(Scene, state="quiz"):
             pass
 
 quiz_router = Router(name=__name__)
-# Add handler that initializes the scene
-quiz_router.message.register(QuizScene.as_handler(), Command("quiz"))
-
-
-@quiz_router.message(Command("start"))
-async def command_start(message: Message, scenes: ScenesManager):
-    await scenes.close()
-    await message.answer(
-        "Hi! This is a quiz bot. To start the quiz, use the /quiz command.",
-        reply_markup=ReplyKeyboardRemove(),
-    )
-
+quiz_router.message.register(QuizScene.as_handler(), Command("start"))
 
 def create_dispatcher():
-    # Event isolation is needed to correctly handle fast user responses
-    dispatcher = Dispatcher(
-        events_isolation=SimpleEventIsolation(),
-    )
+    dispatcher = Dispatcher(events_isolation=SimpleEventIsolation())
     dispatcher.include_router(quiz_router)
-
-    # To use scenes, you should create a SceneRegistry and register your scenes there
+    
     scene_registry = SceneRegistry(dispatcher)
-    # ... and then register a scene in the registry
-    # by default, Scene will be mounted to the router that passed to the SceneRegistry,
-    # but you can specify the router explicitly using the `router` argument
     scene_registry.add(QuizScene)
 
     return dispatcher
@@ -182,7 +160,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    # Alternatively, you can use aiogram-cli:
-    # `aiogram run polling quiz_scene:create_dispatcher --log-level info --token BOT_TOKEN`
     logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
