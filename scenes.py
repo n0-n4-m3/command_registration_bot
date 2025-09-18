@@ -35,6 +35,7 @@ class QuizScene(Scene, state="quiz"):
     async def on_enter(self, message: Message, state: FSMContext, step: int | None = 0) -> Any:
         if not step:
             await message.answer(que_json["start_text"])
+            await message.answer(que_json["start_text"])
         
         try:
             if step != len(QUESTIONS) - 1:
@@ -67,6 +68,7 @@ class QuizScene(Scene, state="quiz"):
             )
         except:
             print("boyya")
+            print("boyya")
 
     @on.poll_answer.exit()
     async def on_exit_poll(self, poll_answer: PollAnswer, state: FSMContext) -> None:
@@ -81,10 +83,30 @@ class QuizScene(Scene, state="quiz"):
         await poll_answer.bot.send_message(chat_id=poll_answer.user.id, text=text, reply_markup=ReplyKeyboardRemove()) # type: ignore
         await state.set_data({})
         
+    async def on_exit_poll(self, poll_answer: PollAnswer, state: FSMContext) -> None:
+        data = await state.get_data()
+        answers = data.get("answers", {})
+        questionnaire = zip([x.text for x in QUESTIONS], answers.values())
+        
+        text = ""
+        for x,y in questionnaire:
+            text = text + f"{x}: {y}\n"
+
+        await poll_answer.bot.send_message(chat_id=poll_answer.user.id, text=text, reply_markup=ReplyKeyboardRemove()) # type: ignore
+        await state.set_data({})
+        
     @on.message.exit()
+    async def on_exit(self, message: Message, state: FSMContext) -> None:
     async def on_exit(self, message: Message, state: FSMContext) -> None:
         data = await state.get_data()
         answers = data.get("answers", {})
+        questionnaire = zip([x.text for x in QUESTIONS], answers.values())
+        
+        text = ""
+        for x,y in questionnaire:
+            text = text + f"{x}: {y}\n"
+
+        await message.answer(text, reply_markup=ReplyKeyboardRemove())
         questionnaire = zip([x.text for x in QUESTIONS], answers.values())
         
         text = ""
@@ -109,6 +131,7 @@ class QuizScene(Scene, state="quiz"):
         data = await state.get_data()
         step = data["step"]
         answers = data.get("answers", {})
+        answers = data.get("answers", {})
         
         answer_id = poll_answer.option_ids[0]
         if QUESTIONS[step].variants[answer_id] == QUESTIONS[step].variants[-1]:
@@ -117,6 +140,8 @@ class QuizScene(Scene, state="quiz"):
                 text="Вы выбрали 'Свой вариант'. Пожалуйста, напишите его:",)
             await state.update_data(awaiting_custom_answer_for_step=step)
         else:
+            answers[step] = QUESTIONS[step].variants[answer_id]  # перезаписываем "Свой вариант" на реальный текст
+            await state.update_data(answers=answers, awaiting_custom_answer_for_step=None)
             answers[step] = QUESTIONS[step].variants[answer_id]  # перезаписываем "Свой вариант" на реальный текст
             await state.update_data(answers=answers, awaiting_custom_answer_for_step=None)
             await self.wizard.retake(step=step+1)
@@ -147,10 +172,13 @@ class QuizScene(Scene, state="quiz"):
 
 quiz_router = Router(name=__name__)
 quiz_router.message.register(QuizScene.as_handler(), Command("start"))
+quiz_router.message.register(QuizScene.as_handler(), Command("start"))
 
 def create_dispatcher():
     dispatcher = Dispatcher(events_isolation=SimpleEventIsolation())
+    dispatcher = Dispatcher(events_isolation=SimpleEventIsolation())
     dispatcher.include_router(quiz_router)
+    
     
     scene_registry = SceneRegistry(dispatcher)
     scene_registry.add(QuizScene)
