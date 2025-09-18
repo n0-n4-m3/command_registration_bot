@@ -4,13 +4,7 @@ from dataclasses import dataclass, field
 from os import getenv
 from typing import Any
 
-from aiogram import Bot, Dispatcher, F, Router, html
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.scene import Scene, SceneRegistry, ScenesManager, on
-from aiogram.fsm.storage.memory import SimpleEventIsolation
-from aiogram.types import KeyboardButton, Message, ReplyKeyboardRemove, PollAnswer
-from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from tech_fields import *
 
 import json
 
@@ -30,6 +24,7 @@ for que in que_json["questions"].values():
         QUESTIONS.append(Question(text=que["text"], type=que["type"], variants=que["poll_fields"]))
     else:
         QUESTIONS.append(Question(text=que["text"], type=que["type"]))
+QUESTIONS.append(Question(text="Ваш профиль в телеграмме скрытый, напишите ваш номер телефона, чтобы с вами могли связаться", type="text"))
     
 # print(QUESTIONS)
 
@@ -41,12 +36,18 @@ class QuizScene(Scene, state="quiz"):
         if not step:
             # This is the first step, so we should greet the user
             await message.answer("Welcome to the quiz!")
-
         
         try:
-            quiz = QUESTIONS[step] # type: ignore
+            if step != len(QUESTIONS) - 1:
+                quiz = QUESTIONS[step] # type: ignore
+            else:
+                if message.from_user.username is not None: #type: ignore
+                    data = await state.get_data()
+                    
+                    answers = data.get("answers", {})
+                    answers[step] = message.text
+                    await self.wizard.retake(step=step+1) #type: ignore
         except IndexError:
-            # This error means that the question's list is over
             return await self.wizard.exit()
 
         markup = ReplyKeyboardBuilder()
@@ -54,7 +55,6 @@ class QuizScene(Scene, state="quiz"):
             markup.button(text="🔙 Назад")
         markup.button(text="🚫 Выход")
 
-        print(step)
         await state.update_data(step=step)
         if QUESTIONS[step].type == "poll": #type: ignore
             return await message.answer_poll(question=QUESTIONS[step].text, #type: ignore
@@ -76,15 +76,19 @@ class QuizScene(Scene, state="quiz"):
             print("booya")
 
     @on.poll_answer.exit()
-    @on.message.exit()
-    async def on_exit(self, poll_answer: PollAnswer, message: Message, state: FSMContext) -> None:
+    async def on_exit_poll(self, poll_answer: PollAnswer, state: FSMContext) -> None:
         data = await state.get_data()
         answers = data.get("answers", {})
 
-        try:
-            await message.answer(answers, reply_markup=ReplyKeyboardRemove())
-        except:
-            await poll_answer.bot.send_message(chat_id=poll_answer.user.id, text=answers, reply_markup=ReplyKeyboardRemove()) # type: ignore
+        await poll_answer.bot.send_message(chat_id=poll_answer.user.id, text=answers, reply_markup=ReplyKeyboardRemove()) # type: ignore
+        await state.set_data({})
+
+    @on.message.exit()
+    async def on_exit(self, message: Message, state: FSMContext) -> None:
+        data = await state.get_data()
+        answers = data.get("answers", {})
+
+        await message.answer(answers, reply_markup=ReplyKeyboardRemove())
         await state.set_data({})
 
     @on.message(F.text == "🔙 Назад")
@@ -177,7 +181,6 @@ def create_dispatcher():
 
 async def main():
     dp = create_dispatcher()
-    bot = Bot(token=TOKEN) # type: ignore
     await dp.start_polling(bot)
 
 
