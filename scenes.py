@@ -44,7 +44,7 @@ class QuizScene(Scene, state="quiz"):
                     data = await state.get_data()
                     
                     answers = data.get("answers", {})
-                    answers[step] = message.text
+                    answers[step] = message.from_user.username
                     await self.wizard.retake(step=step+1) #type: ignore
         except IndexError:
             return await self.wizard.exit()
@@ -85,13 +85,6 @@ class QuizScene(Scene, state="quiz"):
     async def on_exit(self, message: Message, state: FSMContext) -> None:
         data = await state.get_data()
         answers = data.get("answers", {})
-        questionnaire = zip([x.text for x in QUESTIONS], answers.values())
-        
-        text = ""
-        for x,y in questionnaire:
-            text = text + f"{x}: {y}\n"
-
-        await message.answer(text, reply_markup=ReplyKeyboardRemove())
         questionnaire = zip([x.text for x in QUESTIONS], answers.values())
         
         text = ""
