@@ -36,18 +36,18 @@ class QuizScene(Scene, state="quiz"):
         if not step:
             await message.answer(que_json["start_text"])
         
-        try:
-            if step != len(QUESTIONS) - 1:
-                quiz = QUESTIONS[step] # type: ignore
+        if step == len(QUESTIONS) - 1:
+            if (hasattr(message, "from_user") and message.from_user.username is not None) or (message.user.username is not None): #type: ignore
+                data = await state.get_data()
+                
+                answers = data.get("answers", {})
+                if hasattr(message, "from_user"):
+                    answers[step] = "https://t.me/" + message.from_user.username
+                else:
+                    answers[step] = "https://t.me/" + message.user.username
+                return await self.wizard.exit()
             else:
-                if message.from_user.username is not None: #type: ignore
-                    data = await state.get_data()
-                    
-                    answers = data.get("answers", {})
-                    answers[step] = message.from_user.username
-                    await self.wizard.retake(step=step+1) #type: ignore
-        except IndexError:
-            return await self.wizard.exit()
+                await self.wizard.retake(step=step+1) #type: ignore
 
         markup = ReplyKeyboardBuilder()
         if step > 0: # type: ignore
@@ -74,23 +74,25 @@ class QuizScene(Scene, state="quiz"):
         answers = data.get("answers", {})
         questionnaire = zip([x.text for x in QUESTIONS], answers.values())
         
-        text = ""
-        for x,y in questionnaire:
-            text = text + f"{x}: {y}\n"
-
+        text = "Спасибо, ваша заявка принята"
+        # for x,y in questionnaire:
+        #     text = text + f"{x}: {y}\n"
+            
+        sheet.append_row(list(answers.values()))
         await poll_answer.bot.send_message(chat_id=poll_answer.user.id, text=text, reply_markup=ReplyKeyboardRemove()) # type: ignore
         await state.set_data({})
-        
+
     @on.message.exit()
     async def on_exit(self, message: Message, state: FSMContext) -> None:
         data = await state.get_data()
         answers = data.get("answers", {})
         questionnaire = zip([x.text for x in QUESTIONS], answers.values())
         
-        text = ""
-        for x,y in questionnaire:
-            text = text + f"{x}: {y}\n"
+        text = "Спасибо, ваша заявка принята"
+        # for x,y in questionnaire:
+        #     text = text + f"{x}: {y}\n"
 
+        sheet.append_row(list(answers.values()))
         await message.answer(text, reply_markup=ReplyKeyboardRemove())
         await state.set_data({})
 
@@ -109,7 +111,6 @@ class QuizScene(Scene, state="quiz"):
         data = await state.get_data()
         step = data["step"]
         answers = data.get("answers", {})
-        answers = data.get("answers", {})
         
         answer_id = poll_answer.option_ids[0]
         if QUESTIONS[step].variants[answer_id] == QUESTIONS[step].variants[-1]:
@@ -118,8 +119,6 @@ class QuizScene(Scene, state="quiz"):
                 text="Вы выбрали 'Свой вариант'. Пожалуйста, напишите его:",)
             await state.update_data(awaiting_custom_answer_for_step=step)
         else:
-            answers[step] = QUESTIONS[step].variants[answer_id]  # перезаписываем "Свой вариант" на реальный текст
-            await state.update_data(answers=answers, awaiting_custom_answer_for_step=None)
             answers[step] = QUESTIONS[step].variants[answer_id]  # перезаписываем "Свой вариант" на реальный текст
             await state.update_data(answers=answers, awaiting_custom_answer_for_step=None)
             await self.wizard.retake(step=step+1)
