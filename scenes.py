@@ -77,7 +77,11 @@ class QuizScene(Scene, state="quiz"):
         text = "Спасибо, ваша заявка принята"
         # for x,y in questionnaire:
         #     text = text + f"{x}: {y}\n"
-            
+        
+        users = json.load(open("./users.json"))
+        users["users"].append(poll_answer.user.id)
+        json.dump(users, open("./users.json", "w"))
+        
         sheet.append_row(list(answers.values()))
         await poll_answer.bot.send_message(chat_id=poll_answer.user.id, text=text, reply_markup=ReplyKeyboardRemove()) # type: ignore
         await state.set_data({})
@@ -91,7 +95,11 @@ class QuizScene(Scene, state="quiz"):
         text = "Спасибо, ваша заявка принята"
         # for x,y in questionnaire:
         #     text = text + f"{x}: {y}\n"
-
+        
+        users = json.load(open("./users.json"))
+        users["users"].append(message.from_user.id)
+        json.dump(users, open("./users.json", "w"))
+        
         sheet.append_row(list(answers.values()))
         await message.answer(text, reply_markup=ReplyKeyboardRemove())
         await state.set_data({})
