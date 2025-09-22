@@ -45,9 +45,9 @@ class QuizScene(Scene, state="quiz"):
                 
                 answers = data.get("answers", {})
                 if hasattr(message, "from_user"):
-                    answers[step] = "https://t.me/" + message.from_user.username
+                    answers[step] = "https://t.me/" + message.from_user.username #type: ignore
                 else:
-                    answers[step] = "https://t.me/" + message.user.username
+                    answers[step] = "https://t.me/" + message.user.username #type: ignore
                 return await self.wizard.exit()
             else:
                 await self.wizard.retake(step=step+1) #type: ignore
@@ -82,7 +82,7 @@ class QuizScene(Scene, state="quiz"):
         #     text = text + f"{x}: {y}\n"
         
         users = json.load(open("./users.json"))
-        users["users"].append(poll_answer.user.id)
+        users["users"].append(poll_answer.user.id) #type: ignore
         json.dump(users, open("./users.json", "w"))
         
         sheet.append_row(list(answers.values()))
@@ -100,7 +100,7 @@ class QuizScene(Scene, state="quiz"):
         #     text = text + f"{x}: {y}\n"
         
         users = json.load(open("./users.json"))
-        users["users"].append(message.from_user.id)
+        users["users"].append(message.from_user.id) #type: ignore
         json.dump(users, open("./users.json", "w"))
         
         sheet.append_row(list(answers.values()))
@@ -178,7 +178,7 @@ async def on_shutdown() -> None:
     await bot.session.close()
 
 
-async def main():
+def main():
     dp = create_dispatcher()
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
@@ -199,4 +199,4 @@ async def main():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(main())
+    main()
