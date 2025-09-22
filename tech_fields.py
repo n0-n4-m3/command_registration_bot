@@ -34,3 +34,8 @@ credentials = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=sco
 gc = gspread.authorize(credentials)
 
 sheet = gc.open_by_url(SPREADSHEET_URL).sheet1 
+
+BASE_URL = "https://literally-prevailing-mammal.cloudpub.ru"
+WEBHOOK_PATH = f"/{TOKEN}"
+HOST = "0.0.0.0"
+PORT = 3000
